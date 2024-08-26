@@ -29,6 +29,7 @@ def test_docker_services() -> None:
                 docker_compose_project_name="pytest123",
                 docker_setup=get_setup_command(),
                 docker_cleanup=get_cleanup_command(),
+                docker_compose_args="--project-directory test",
             ) as services:
                 assert isinstance(services, Services)
 
@@ -52,19 +53,19 @@ def test_docker_services() -> None:
     # Both should have been called.
     assert run.call_args_list == [
         mock.call(
-            'docker compose -f "docker-compose.yml" -p "pytest123" up --build -d',
+            'docker compose -f "docker-compose.yml" --project-directory test -p "pytest123" up --build -d',
             stderr=subprocess.STDOUT,
             shell=True,
         ),
         mock.call(
-            'docker compose -f "docker-compose.yml" -p "pytest123" down -v',
+            'docker compose -f "docker-compose.yml" --project-directory test -p "pytest123" down -v',
             stderr=subprocess.STDOUT,
             shell=True,
         ),
     ]
     assert check_output.call_args_list == [
         mock.call(
-            'docker compose -f "docker-compose.yml" -p "pytest123" port abc 123',
+            'docker compose -f "docker-compose.yml" --project-directory test -p "pytest123" port abc 123',
             stderr=subprocess.STDOUT,
             shell=True,
         ),

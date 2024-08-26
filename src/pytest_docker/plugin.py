@@ -175,6 +175,7 @@ class DockerComposeExecutor:
     _compose_command: str = attr.ib()
     _compose_files: Any = attr.ib(converter=str_to_list)
     _compose_project_name: str = attr.ib()
+    _compose_args: str = attr.ib(default="")
 
     def execute_and_get_output(self, subcommand: str) -> Union[bytes, Any]:
         return execute_and_get_output(self._format_cmd(subcommand))
@@ -186,6 +187,8 @@ class DockerComposeExecutor:
         command = self._compose_command
         for compose_file in self._compose_files:
             command += ' -f "{}"'.format(compose_file)
+        if self._compose_args:
+            command += ' {}'.format(self._compose_args)
         command += ' -p "{}" {}'.format(self._compose_project_name, subcommand)
         return command
 
@@ -241,6 +244,17 @@ def docker_setup() -> Union[List[str], str]:
     return get_setup_command()
 
 
+def get_compose_args() -> str:
+    return ""
+
+
+@pytest.fixture(scope=containers_scope)
+def docker_compose_args() -> str:
+    """Arguments for `docker compose` commands, e.g. `--project-directory .`"""
+
+    return get_compose_args()
+
+
 @contextlib.contextmanager
 def get_docker_services(
     docker_compose_command: str,
@@ -248,9 +262,10 @@ def get_docker_services(
     docker_compose_project_name: str,
     docker_setup: Union[List[str], str],
     docker_cleanup: Union[List[str], str],
+    docker_compose_args: str = "",
 ) -> Iterator[Services]:
     docker_compose = DockerComposeExecutor(
-        docker_compose_command, docker_compose_file, docker_compose_project_name
+        docker_compose_command, docker_compose_file, docker_compose_project_name, docker_compose_args
     )
 
     # setup containers.
@@ -282,6 +297,7 @@ def docker_services(
     docker_compose_project_name: str,
     docker_setup: str,
     docker_cleanup: str,
+    docker_compose_args: str,
 ) -> Iterator[Services]:
     """Start all services from a docker compose file (`docker-compose up`).
     After test are finished, shutdown all services (`docker-compose down`)."""
@@ -292,5 +308,6 @@ def docker_services(
         docker_compose_project_name,
         docker_setup,
         docker_cleanup,
+        docker_compose_args,
     ) as docker_service:
         yield docker_service
