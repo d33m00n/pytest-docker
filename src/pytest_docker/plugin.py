@@ -146,6 +146,12 @@ class Services(contextlib.AbstractContextManager):  # type: ignore
 
         raise Exception("Timeout reached while waiting on service!")
 
+    def execute(self, cmd: str):
+        self._docker_compose.execute(cmd)
+
+    def execute_and_get_output(self, cmd: str) -> Union[bytes, Any]:
+        return self._docker_compose.execute_and_get_output(cmd)
+
     def display_live_logs(self, service: str) -> None:
         """Run `logs` command with the follow flag to show live logs of a service."""
         if service in self._live_logs:
