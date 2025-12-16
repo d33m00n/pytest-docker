@@ -1,12 +1,13 @@
 from concurrent.futures import Future, ThreadPoolExecutor
 import contextlib
 import os
+from pathlib import Path
 import re
 import subprocess
 import time
 import timeit
 from types import TracebackType
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple, Union, Type
 
 import attr
 import pytest
@@ -25,10 +26,11 @@ def containers_scope(fixture_name: str, config: Config) -> Any:  # pylint: disab
     return config.getoption("--container-scope", "session")
 
 
-def execute_and_get_output(command: str, success_codes: Iterable[int] = (0,)) -> Union[bytes, Any]:
+def execute(command: str, success_codes: Iterable[int] = (0,), ignore_stderr: bool = False) -> Union[bytes, Any]:
     """Run a shell command."""
     try:
-        output = subprocess.check_output(command, stderr=subprocess.STDOUT, shell=True)
+        stderr_pipe = subprocess.DEVNULL if ignore_stderr else subprocess.STDOUT
+        output = subprocess.check_output(command, stderr=stderr_pipe, shell=True)
         status = 0
     except subprocess.CalledProcessError as error:
         output = error.output or b""
@@ -42,7 +44,7 @@ def execute_and_get_output(command: str, success_codes: Iterable[int] = (0,)) ->
     return output
 
 
-def execute(command: str, success_codes: Iterable[int] = (0,)) -> None:
+def execute_via_run(command: str, success_codes: Iterable[int] = (0,)) -> None:
     try:
         process = subprocess.run(command, stderr=subprocess.STDOUT, shell=True)
         returncode = process.returncode
@@ -63,10 +65,8 @@ def get_docker_ip() -> Union[str, Any]:
     if not docker_host or docker_host.startswith("unix://"):
         return "127.0.0.1"
 
-    match = re.match(r"^tcp://(.+?):\d+$", docker_host)
-    if not match:
-        raise ValueError('Invalid value for DOCKER_HOST: "%s".' % (docker_host,))
-    return match.group(1)
+    # Return just plain address without prefix and port
+    return re.sub(r"^[^:]+://(.+):\d+$", r"\1", docker_host)
 
 
 @pytest.fixture(scope=containers_scope)
@@ -106,11 +106,11 @@ class Services(contextlib.AbstractContextManager):  # type: ignore
         """
 
         # Lookup in the cache.
-        cache: int = self._services.get(service, {}).get(container_port, None)
+        cache: Optional[int] = self._services.get(service, {}).get(container_port, None)
         if cache is not None:
             return cache
 
-        output = self._docker_compose.execute_and_get_output("port %s %d" % (service, container_port))
+        output = self._docker_compose.execute("port %s %d" % (service, container_port))
         endpoint = output.strip().decode("utf-8")
         if not endpoint:
             raise ValueError('Could not detect port for "%s:%d".' % (service, container_port))
@@ -146,11 +146,11 @@ class Services(contextlib.AbstractContextManager):  # type: ignore
 
         raise Exception("Timeout reached while waiting on service!")
 
-    def execute(self, cmd: str):
-        self._docker_compose.execute(cmd)
+    def execute(self, cmd: str) -> Union[bytes, Any]:
+        return self._docker_compose.execute(cmd)
 
-    def execute_and_get_output(self, cmd: str) -> Union[bytes, Any]:
-        return self._docker_compose.execute_and_get_output(cmd)
+    def execute_via_run(self, cmd: str) -> None:
+        self._docker_compose.execute_via_run(cmd)
 
     def display_live_logs(self, service: str) -> None:
         """Run `logs` command with the follow flag to show live logs of a service."""
@@ -165,7 +165,7 @@ Please submit a PR if you want to change that."""
             )
 
         self._live_logs[service] = self._thread_pool_executor.submit(
-            self._docker_compose.execute, f"logs {service} -f"
+            self._docker_compose.execute_via_run, f"logs {service} -f"
         )
 
     def close(self) -> None:
@@ -183,7 +183,7 @@ Please submit a PR if you want to change that."""
         return None
 
 
-def str_to_list(arg: Union[str, List[Any], Tuple[Any]]) -> Union[List[Any], Tuple[Any]]:
+def str_to_list(arg: Union[str, Path, List[Any], Tuple[Any]]) -> Union[List[Any], Tuple[Any]]:
     if isinstance(arg, (list, tuple)):
         return arg
     return [arg]
@@ -196,11 +196,11 @@ class DockerComposeExecutor:
     _compose_project_name: str = attr.ib()
     _compose_args: str = attr.ib(default="")
 
-    def execute_and_get_output(self, subcommand: str) -> Union[bytes, Any]:
-        return execute_and_get_output(self._format_cmd(subcommand))
+    def execute(self, subcommand: str, **kwargs: Any) -> Union[bytes, Any]:
+        return execute(self._format_cmd(subcommand), **kwargs)
 
-    def execute(self, subcommand: str) -> None:
-        execute(self._format_cmd(subcommand))
+    def execute_via_run(self, subcommand: str) -> None:
+        execute_via_run(self._format_cmd(subcommand))
 
     def _format_cmd(self, subcommand: str) -> str:
         command = self._compose_command
@@ -251,7 +251,7 @@ def docker_cleanup() -> Union[List[str], str]:
 
 
 def get_setup_command() -> Union[List[str], str]:
-    return ["up --build -d"]
+    return ["up --build --wait"]
 
 
 @pytest.fixture(scope=containers_scope)

@@ -8,6 +8,7 @@ from .plugin import (
     docker_ip,
     docker_services,
     docker_setup,
+    Services,
     docker_compose_args,
 )
 
@@ -19,6 +20,7 @@ __all__ = [
     "docker_setup",
     "docker_cleanup",
     "docker_services",
+    "Services",
     "docker_compose_args",
 ]
 
